@@ -8,21 +8,24 @@ from wagtail.contrib.modeladmin.options import (ModelAdmin,
 from django.http import HttpResponse
 from django.utils.encoding import smart_str
 from django.contrib.auth.decorators import login_required
-from django.core.urlresolvers import reverse
+from django.urls import reverse
+# from django.core.urlresolvers import reverse
 from django.conf.urls import url
-from django.utils.translation import ugettext as _
 from django.utils.decorators import method_decorator
 from django.core.exceptions import PermissionDenied
 from wagtail.contrib.modeladmin.views import IndexView
 from wagtail.contrib.modeladmin.options import (
     ModelAdmin, modeladmin_register)
-from wagtail.contrib.modeladmin.helpers import AdminURLHelper, ButtonHelper
+from wagtail.contrib.modeladmin.helpers import AdminURLHelper, ButtonHelper, PageAdminURLHelper, PageButtonHelper
 from import_export.resources import modelresource_factory
 from import_export.formats.base_formats import CSV
 from datetime import datetime
+from django.utils.functional import cached_property
+from django.utils.http import urlquote
+from django.utils.translation import ugettext as _
 
 
-class ExportButtonHelper(ButtonHelper):
+class ExportButtonHelper(PageButtonHelper):
     """
     This helper constructs all the necessary attributes to create a button.
 
@@ -39,7 +42,7 @@ class ExportButtonHelper(ButtonHelper):
 
         classnames = self.export_button_classnames + classnames_add
         cn = self.finalise_classname(classnames, classnames_exclude)
-        text = _('Export {}'.format(self.verbose_name_plural.title()))
+        text = '导出 {}'.format(self.verbose_name_plural.title())
 
         return {
             'url': self.url_helper.get_action_url('export', query_params=self.request.GET),
@@ -49,7 +52,7 @@ class ExportButtonHelper(ButtonHelper):
         }
 
 
-class ExportAdminURLHelper(AdminURLHelper):
+class ExportAdminURLHelper(PageAdminURLHelper):
     """
     This helper constructs the different urls.
 
@@ -67,14 +70,16 @@ class ExportAdminURLHelper(AdminURLHelper):
         query_params = kwargs.pop('query_params', None)
 
         url_name = self.get_action_url_name(action)
+        if action in ('add', 'edit', 'delete', 'unpublish', 'copy'):
+            url_name = 'wagtailadmin_pages:%s' % action
+            target_url = reverse(url_name, args=args, kwargs=kwargs)
+            return '%s?next=%s' % (target_url, urlquote(self.index_url))
         if action in self.non_object_specific_actions:
             url = reverse(url_name)
         else:
             url = reverse(url_name, args=args, kwargs=kwargs)
-
         if query_params:
             url += '?{params}'.format(params=query_params.urlencode())
-
         return url
 
     def get_action_url_pattern(self, action):
@@ -82,6 +87,14 @@ class ExportAdminURLHelper(AdminURLHelper):
             return self._get_action_url_pattern(action)
 
         return self._get_object_specific_action_url_pattern(action)
+
+    @cached_property
+    def index_url(self):
+        return self.get_action_url('index')
+
+    @cached_property
+    def create_url(self):
+        return self.get_action_url('create')
 
 
 class ExportView(IndexView):
@@ -151,7 +164,7 @@ class ExportModelAdminMixin(object):
 
     export_view_class = ExportView
     index_template_name = 'wagtail_exportcsv/exportcsv.html'
-    
+
     def get_admin_urls_for_registration(self):
         urls = super().get_admin_urls_for_registration()
         urls += (
@@ -165,9 +178,7 @@ class ExportModelAdminMixin(object):
         return urls
 
     def export_view(self, request):
-        
+
         kwargs = {'model_admin': self, 'resource_class': self.resource_class}
         view_class = self.export_view_class
         return view_class.as_view(**kwargs)(request)
-
-
